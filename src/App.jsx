@@ -1,3 +1,5 @@
+import { supabase } from './supabaseClient'
+
 import { useState, useEffect } from 'react'
 import './App.css'
 
@@ -11,6 +13,26 @@ function App() {
   // Foresta degli alberi (solo quelli completati!)
   const [forest, setForest] = useState([])
   const [currentTree, setCurrentTree] = useState(null)
+
+  async function saveSession() {
+  // ogni sessione = 1 pomodoro da 25 minuti e 1 albero salvato
+  const date = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+
+  try {
+    const { error } = await supabase.from('sessions').insert({
+      date,
+      pomodoros_completed: 1,
+      total_focus_minutes: 25,
+      trees_grown: 1
+    })
+
+    if (error) {
+      console.error('Errore salvataggio sessione:', error.message)
+    }
+  } catch (err) {
+    console.error('Errore di rete Supabase:', err)
+  }
+}
 
   const durations = {
     work: 25 * 60,
@@ -55,6 +77,16 @@ function App() {
   //  PIANTA albero (solo in modalità lavoro)
   function handleStart() {
     if (mode === 'work') {
+      async function saveSession(pomodoros, focusSeconds, trees) {
+  const date = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+  await supabase.from('sessions').insert({
+    date,
+    pomodoros_completed: pomodoros,
+    total_focus_minutes: Math.round(focusSeconds / 60),
+    trees_grown: trees
+  })
+}
+
       const newTree = {
         id: Date.now(),
         startTime: new Date().toISOString(),
@@ -71,11 +103,12 @@ function App() {
     setIsRunning(false)
   }
 
-  function handleTimerFinish() {
-    setIsRunning(false)
-    
-    // SALVA ALBERO solo se pomodoro completato
-    if (mode === 'work' && currentTree) {
+  async function handleTimerFinish() {
+  setIsRunning(false)
+
+  if (mode === 'work') {
+    // se c'è un albero in crescita, lo salviamo come completato
+    if (currentTree) {
       const grownTree = {
         ...currentTree,
         status: 'grown',
@@ -85,24 +118,28 @@ function App() {
       setForest(prev => [...prev, grownTree])
       setCurrentTree(null)
     }
-    
-    // Logica pomodori
-    if (mode === 'work') {
-      const newCount = completedPomodoros + 1
-      setCompletedPomodoros(newCount)
-      
-      if (newCount >= 4) {
-        setMode('longBreak')
-        setSecondsLeft(durations.longBreak)
-      } else {
-        setMode('shortBreak')
-        setSecondsLeft(durations.shortBreak)
-      }
+
+    // aggiorna numero pomodori in memoria
+    const newCount = completedPomodoros + 1
+    setCompletedPomodoros(newCount)
+
+    // salva la sessione nel backend (Supabase)
+    await saveSession()
+
+    // gestione pause
+    if (newCount >= 4) {
+      setMode('longBreak')
+      setSecondsLeft(durations.longBreak)
     } else {
-      setMode('work')
-      setSecondsLeft(durations.work)
+      setMode('shortBreak')
+      setSecondsLeft(durations.shortBreak)
     }
+  } else {
+    // se finisce una pausa, torna al lavoro
+    setMode('work')
+    setSecondsLeft(durations.work)
   }
+}
 
   function handleReset() {
     setCurrentTree(null) // Annulla albero corrente
